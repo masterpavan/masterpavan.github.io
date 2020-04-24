@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tree Shaking -- a right way</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__left">
+    <div class="stackedit__toc">
+      
+<ul>
+<li><a href="#tree-shaking----a-right-way">Tree Shaking – a right way</a>
+<ul>
+<li><a href="#the-library">The Library</a></li>
+<li><a href="#the-consumer">The Consumer</a></li>
+<li><a href="#in-summary">In Summary</a></li>
+<li><a href="#faq">FAQ</a></li>
+</ul>
+</li>
+</ul>
+
+    </div>
+  </div>
+  <div class="stackedit__right">
+    <div class="stackedit__html">
+      <h1 id="tree-shaking----a-right-way">Tree Shaking – a right way</h1>
+<p>Lets assume you’ve heard of tree shaking.</p>
+<blockquote>
+<p><em>Tree shaking</em> is a term commonly used in the JavaScript context for dead-code elimination.</p>
+</blockquote>
+<p>Maybe you’ve read that on the  <a href="https://webpack.js.org/guides/tree-shaking/">Webpack docs</a>, maybe you’ve read <a href="https://rollupjs.org/guide/en/#tree-shaking">Rollup’s explanation</a>. You probably googled “Tree Shaking” or even “Why isn’t Tree Shaking working??”. Regardless of how you got here, you are here for a reason.</p>
+<p>You want to know the right way of setting up your application and libraries to support tree shaking.</p>
+<p><strong>Lets begin.</strong></p>
+<p>I want to preface that I am going to show you a setup that Just Works™. While this might not be your setup – you might have different tools, you might organize your code in a different way – Hopefully this still helps you understand why tree shaking is or isn’t happening and lets you figure out a solution for your setup.</p>
+<p>Our code organization is as follows:</p>
+<ul>
+<li>We have a <strong>consumer application</strong> – a simple dashboard that users access through their browser – which imports and displays different charts and graphs from many different npm packages.</li>
+<li>We have a <strong>library</strong> – published and versioned on npm – which exports many different charts, many different graphs, and many different components. Some of these components are consumed by the above application. Others are used by a different consumer. All of these components live here so that they can be shared across multiple consumers.</li>
+</ul>
+<p>In short, the components live in the <strong>library</strong> and they are imported into the <strong>consumer</strong>. The consumer app is bundled together with <strong>webpack</strong>, so webpack is the one doing the tree shaking. Ideally, we want to tree shake out the library components we don’t use in the consumer.</p>
+<h2 id="the-library">The Library</h2>
+<p>There are a few things we have to make sure we do on the library side.</p>
+<p><strong>1.  Side Effects:</strong><br>
+First, webpack expects you to set the <code>sideEffects</code> flag in the library package.json. You can read webpack’s writeup on that <code>sideEffects</code> <a href="https://webpack.js.org/guides/tree-shaking/#mark-the-file-as-side-effect-free">here</a>. Basically, you do this in your library package.json:</p>
+<pre class=" language-json"><code class="prism  language-json"><span class="token punctuation">{</span>
+  <span class="token string">"name"</span><span class="token punctuation">:</span> <span class="token string">"@org/component-library"</span><span class="token punctuation">,</span>
+  <span class="token string">"version"</span><span class="token punctuation">:</span> <span class="token string">"3.32.2"</span><span class="token punctuation">,</span>
+  <span class="token string">"module"</span><span class="token punctuation">:</span> <span class="token string">"dist/index.bundled-right.js"</span>
+  <span class="token string">"sideEffects"</span><span class="token punctuation">:</span> <span class="token boolean">false</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>or, if you do have sideEffects (such as css) you do something like this:</p>
+<pre class=" language-json"><code class="prism  language-json"><span class="token punctuation">{</span>
+  <span class="token string">"name"</span><span class="token punctuation">:</span> <span class="token string">"@org/component-library"</span><span class="token punctuation">,</span>
+  <span class="token string">"version"</span><span class="token punctuation">:</span> <span class="token string">"3.32.2"</span><span class="token punctuation">,</span>
+  <span class="token string">"module"</span><span class="token punctuation">:</span> <span class="token string">"dist/index.bundled-right.js"</span>
+  <span class="token string">"sideEffects"</span><span class="token punctuation">:</span> <span class="token punctuation">[</span>
+	  <span class="token string">"*.css"</span><span class="token punctuation">,</span>
+	  <span class="token string">"*.less"</span><span class="token punctuation">,</span>
+	  <span class="token string">"*.scss"</span>
+  <span class="token punctuation">]</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>This tells the webpack the compiler that all files (except for the ones in that array) in your project are “pure” and therefore safe to prune if unused. The webpack writeup linked above explains this in more detail, so check it out if you want to know specifics.</p>
+<hr>
+<p><strong>2. Modular Bundling</strong><br>
+According to webpack, using the sideEffects flag achieves tree shaking by skipping whole modules/files when it constructs a bundle. In order for webpack to actually prune the modules/files you don’t use, they heavily rely on ES6 import/export syntax. <strong>Implication:</strong> (and this really should be mentioned in their docs) <strong>your library must be bundled into <em>separate</em> files, all strung together with import/export syntax, not just a single file.</strong> This is important so I will give you an example:</p>
+<p><strong>Example:</strong><br>
+If this is your source code structure <strong>(A)</strong>:</p>
+<pre><code>src
+├─ components
+│  ├─ gorgeous-graph
+│  │  ├─ gorgeous-graph.ts (3a)
+│  │  └─ index.ts (4a)
+│  ├─ wicked-widget
+│  │  ├─ wicked-widget.ts (5a)
+│  │  └─ index.ts (6a)
+│  └─ index.ts (2a)
+└─ index.ts (1a)
+</code></pre>
+<p>Where the file contents are as follows:</p>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// 1a: ./src/index.ts:</span>
+<span class="token keyword">export</span> <span class="token operator">*</span> <span class="token keyword">from</span> <span class="token string">'./components'</span>
+</code></pre>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// 2a: ./src/components/index.ts</span>
+<span class="token keyword">export</span> <span class="token operator">*</span> <span class="token keyword">from</span> <span class="token string">'./gorgeous-graph'</span>
+<span class="token keyword">export</span> <span class="token operator">*</span> <span class="token keyword">from</span> <span class="token string">'./wicked-widget'</span>
+</code></pre>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// 3a: ./src/components/gorgeous-graph/gorgeous-graph.ts</span>
+<span class="token keyword">export</span> <span class="token keyword">const</span> <span class="token function-variable function">GorgeousGraph</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span><span class="token operator">...</span><span class="token punctuation">}</span>
+</code></pre>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// 4a: ./src/components/gorgeous-graph/index.ts</span>
+<span class="token keyword">export</span> <span class="token operator">*</span> <span class="token keyword">from</span> <span class="token string">'./gorgeous-graph'</span>
+</code></pre>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// 5a: ./src/components/wicked-widget/wicked-widget.ts</span>
+<span class="token keyword">export</span> <span class="token keyword">const</span> <span class="token function-variable function">WickedWidget</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span><span class="token operator">...</span><span class="token punctuation">}</span>
+</code></pre>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// 6a: ./src/components/wicked-widget/index.ts</span>
+<span class="token keyword">export</span> <span class="token operator">*</span> <span class="token keyword">from</span> <span class="token string">'./wicked-widget'</span>
+</code></pre>
+<p>Then this needs to be your bundled code structure <strong>(B)</strong>:</p>
+<pre><code>dist
+├─ components
+│  ├─ gorgeous-graph
+│  │  └─ gorgeous-graph.bundled-right.js (2b)
+│  └─ wicked-widget
+│  │  └─ wicked-widget.bundled-right.js (3b)
+└─ index.bundled-right.js (1b)
+</code></pre>
+<p>Where the file contents are as follows:</p>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// 1b: ./dist/index.bundled-right.js:</span>
+<span class="token keyword">export</span> <span class="token punctuation">{</span> GorgeousGraph <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'./components/gorgeous-graph/gorgeous-graph.bundled-right.js'</span>
+<span class="token keyword">export</span> <span class="token punctuation">{</span> WickedWidget <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'./components/wicked-widget/wicked-widget.bundled-right.js'</span>
+</code></pre>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// 2b: ./dist/components/gorgeous-graph/gorgeous-graph.bundled-right.js</span>
+<span class="token keyword">const</span> <span class="token function-variable function">GorgeousGraph</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span><span class="token operator">...</span><span class="token punctuation">}</span>
+<span class="token keyword">export</span> <span class="token punctuation">{</span> GorgeousGraph <span class="token punctuation">}</span>
+</code></pre>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// 3b: ./src/components/wicked-widget/wicked-widget.bundled-right.js</span>
+<span class="token keyword">const</span> <span class="token function-variable function">WickedWidget</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span><span class="token operator">...</span><span class="token punctuation">}</span>
+<span class="token keyword">export</span> <span class="token punctuation">{</span> WickedWidget <span class="token punctuation">}</span>
+</code></pre>
+<p>NOT this <strong>(C)</strong>:</p>
+<pre><code>dist
+└─ index.bundled-wrong.js (1c)
+</code></pre>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// 1c: ./dist/index.bundled-wrong.js</span>
+<span class="token keyword">const</span> <span class="token function-variable function">GorgeousGraph</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span><span class="token operator">...</span><span class="token punctuation">}</span>
+<span class="token keyword">const</span> <span class="token function-variable function">WickedWidget</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span><span class="token operator">...</span><span class="token punctuation">}</span>
+<span class="token keyword">export</span> <span class="token punctuation">{</span> GorgeousGraph<span class="token punctuation">,</span> WickedWidget <span class="token punctuation">}</span>
+</code></pre>
+<p>This ensures that webpack will be able to traverse your bundle and prune any unused modules/files.</p>
+<p>Why?</p>
+<p>Notice the difference between <strong>(B)</strong> and <strong>(C)</strong>. <strong>(C)</strong> is bundled together by concatenating all the source code that was exported/referenced by exports into a single file, then exporting it all in a statement at the bottom.  <strong>(B)</strong> doesn’t do any concatenation. Instead, the entry file only contains re-exports of the source code that was exported.</p>
+<blockquote>
+<p>According to webpack, using the <code>sideEffects</code> flag achieves tree shaking by <strong>skipping</strong> whole modules/files when it constructs a bundle.<br>
+– me, above</p>
+</blockquote>
+<p>Webpack skips bundling modules/files by not resolving import/export statements. It doesn’t look through your source code and try to determine whether or not code was referenced. It only looks at import/export statements to determine whether or not to include or exclude a chunk of source code.</p>
+<p>The takeaway? If your bundle output looks like <strong>(C)</strong>, then you need to change it to look like <strong>(B)</strong>.</p>
+<p>Okay… so how do you do that?</p>
+<p>Lucky for us, in this setup, the library is bundled together using <strong>Rollup</strong>. Unfortunately, Rollup will create a final bundle that looks like <strong>(C)</strong> by default, which is not what we want. However, even luckier for us, they have a nice flag called <code>preserveModules</code>. From their docs:</p>
+<blockquote>
+<p>Instead of creating as few chunks as possible, this mode [<em>preserveModules mode</em>] will create separate chunks for all modules using the original module names as file names. Requires the output.dir option.</p>
+</blockquote>
+<p>Which is exactly what we want! Our rollup config should look something like this:</p>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// rollup.config.js</span>
+<span class="token keyword">export</span> <span class="token keyword">default</span> <span class="token punctuation">{</span>
+	input<span class="token punctuation">:</span> <span class="token string">"src/index.ts"</span> <span class="token comment">// this is file (1a) above--the entrypoint to the library</span>
+	output<span class="token punctuation">:</span> <span class="token punctuation">{</span>
+		dir<span class="token punctuation">:</span> <span class="token string">'dist'</span><span class="token punctuation">,</span> 
+		entryFileNames<span class="token punctuation">:</span> <span class="token string">'[name].bundled-right.js'</span><span class="token punctuation">,</span> <span class="token comment">// &lt;- *important to have .js</span>
+		format<span class="token punctuation">:</span> <span class="token string">'es'</span><span class="token punctuation">,</span>
+	<span class="token punctuation">}</span><span class="token punctuation">,</span> 
+	preserveModules<span class="token punctuation">:</span> <span class="token boolean">true</span> 
+<span class="token punctuation">}</span>
+</code></pre>
+<blockquote>
+<p>*must use <code>entryFileNames</code> with a .js extension if your source is .ts, .tsx, .jsx, etc. and compiles down to javascript. Without it, rollup will use your original file extension on the bundled files (see <a href="https://github.com/rollup/rollup/issues/3107">rollup#3107</a>)</p>
+</blockquote>
+<hr>
+<p><strong>3. Compile to ES6</strong><br>
+You might have noticed the <code>format: 'es'</code> setting in the rollup config. This is also necessary. As I mentioned before, webpack relies on import/export syntax, and so your library code must be bundled as an ES module. If its not a ES bundle, there won’t be any import/export statements for webpack to use.</p>
+<p>If you use typescript, make sure to compile your typescript down to ES6+ as well — more on that in the consumer section below.</p>
+<hr>
+<p>At this point, the library should be correctly configured to be tree shaken. Here is a summary:</p>
+<ul>
+<li>Set <code>sideEffects: false</code> or list a set of sideEffects in your library <code>package.json</code></li>
+<li>Make sure your final bundle seperates code into seperate files. You can do this with Rollup and <code>preserveModules</code></li>
+<li>Make sure you bundle your library as an ES module. You can do this with the <code>format: 'es'</code> setting in the rollup config.</li>
+</ul>
+<h2 id="the-consumer">The Consumer</h2>
+<p>If you haven’t noticed from the code files above, we are using typescript. Compiling typescript down to javascript is easy enough using webpack or rollup with babel or ts-loader and there are tons of resources out there on how to do that. There is a crucial configuration we need to make sure of if we are compiling typescript down to javascript on the consumer side (and on the library side).</p>
+<hr>
+<p><strong>1. Compile to ES6</strong><br>
+Remember how I mentioned that webpack heavily relies on import/export syntax? For the whole tree shaking algorithm to take place, your consumer code needs to reference your library using import/export syntax too . That means that when you compile typescript down to javascript, you must ensure that it compiles it into ES6 format. Let me give you an example:</p>
+<p>Here is some consumer source code. On the consumer side, we only want to use gorgeous graphs and don’t really care much for wicked widgets, so we would like the source code for wicked widgets to be tree shaken out.</p>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// ./src/dashboard.tsx</span>
+<span class="token comment">// note this example isn't react specific, it can be any source code</span>
+<span class="token comment">// angular, vue, or just plain functions.</span>
+<span class="token keyword">import</span> <span class="token punctuation">{</span> GorgeousGraph <span class="token punctuation">}</span> <span class="token keyword">from</span> <span class="token string">'@org/component-library'</span>
+<span class="token comment">// .. other imports</span>
+
+<span class="token keyword">export</span> <span class="token keyword">const</span> <span class="token function-variable function">GraphContainer</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+	<span class="token comment">// ... component code</span>
+	<span class="token keyword">return</span> <span class="token punctuation">(</span>
+		<span class="token operator">&lt;</span>GorgeousGraph <span class="token operator">/</span><span class="token operator">&gt;</span>
+	<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>We need to make sure  to set our tsconfig.json like so:</p>
+<pre class=" language-json"><code class="prism  language-json"><span class="token punctuation">{</span>
+	<span class="token string">"compilerOptions"</span><span class="token punctuation">:</span> <span class="token punctuation">{</span>
+		<span class="token string">"module"</span><span class="token punctuation">:</span> <span class="token string">"ES6"</span><span class="token punctuation">,</span> <span class="token comment">// instead of CommonJS or some other format</span>
+		<span class="token comment">// ... other options</span>
+	<span class="token punctuation">}</span><span class="token punctuation">,</span>
+	<span class="token comment">// ... other options</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<blockquote>
+<p>The same thing applies on the library side as well, if you are using typescript!</p>
+</blockquote>
+<p>When we run our consumer bundler (webpack) we end up with this as output:</p>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">/***/</span>  <span class="token string">"./src/dashboard.tsx"</span><span class="token punctuation">:</span>
+<span class="token comment">/*!*****************************************************************!*\
+// ... removed webpack specific output for brevity
+
+/* harmony export (binding) */</span>  __webpack_require__<span class="token punctuation">.</span><span class="token function">d</span><span class="token punctuation">(</span>__webpack_exports__<span class="token punctuation">,</span> <span class="token string">"GraphContainer "</span><span class="token punctuation">,</span> <span class="token keyword">function</span><span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token punctuation">{</span> <span class="token keyword">return</span>  GraphContainer <span class="token punctuation">;</span> <span class="token punctuation">}</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token comment">/* harmony import */</span>  <span class="token keyword">var</span>  react__WEBPACK_IMPORTED_MODULE_0__  <span class="token operator">=</span>  <span class="token function">__webpack_require__</span><span class="token punctuation">(</span><span class="token comment">/*! react */</span>  <span class="token string">"react"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token comment">/* harmony import */</span>  <span class="token keyword">var</span>  react__WEBPACK_IMPORTED_MODULE_0___default  <span class="token operator">=</span>  <span class="token comment">/*#__PURE__*/</span>__webpack_require__<span class="token punctuation">.</span><span class="token function">n</span><span class="token punctuation">(</span>react__WEBPACK_IMPORTED_MODULE_0__<span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token comment">/* harmony import */</span>  <span class="token keyword">var</span>  _org_component_library__WEBPACK_IMPORTED_MODULE_4__  <span class="token operator">=</span>  <span class="token function">__webpack_require__</span><span class="token punctuation">(</span><span class="token comment">/*! @org/component-library */</span>  <span class="token string">"./node_modules/@org/component-library/dist/index.bundled-right.js"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">const</span> <span class="token function-variable function">GraphContainer</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+	<span class="token keyword">return</span> react__WEBPACK_IMPORTED_MODULE_0___default<span class="token punctuation">.</span>a<span class="token punctuation">.</span><span class="token function">createElement</span><span class="token punctuation">(</span>_costar_react_google_map__WEBPACK_IMPORTED_MODULE_4__<span class="token punctuation">[</span><span class="token string">"Map"</span><span class="token punctuation">]</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token punctuation">}</span><span class="token punctuation">;</span>
+</code></pre>
+<p>The presence of <code>/* harmony import */</code> indicates that the package is being imported as a ES6 module <em>(aka harmony module)</em> and so the tree shaking algorithm can be applied. If we didn’t compile to ES6, and instead did CommonJS, we’d end up with something like this in the final webpack output:</p>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// if typescript compiles to CommonJS</span>
+<span class="token comment">/***/</span>  <span class="token string">"./src/dashboard.tsx"</span><span class="token punctuation">:</span>
+<span class="token comment">/*!*****************************************************************!*\
+// ... removed webpack specific output for brevity
+
+const  react_1  =  __importStar(__webpack_require__(/*! react */</span>  <span class="token string">"react"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+<span class="token keyword">const</span>  component_library_1<span class="token operator">=</span>  <span class="token function">__webpack_require__</span><span class="token punctuation">(</span><span class="token comment">/*! @org/component-library */</span>  <span class="token string">"./node_modules/@org/component-library/dist/index.bundled-right.js"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+exports<span class="token punctuation">.</span><span class="token function-variable function">GraphContainer</span> <span class="token operator">=</span> <span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token operator">=&gt;</span> <span class="token punctuation">{</span>
+	<span class="token keyword">return</span> react_1<span class="token punctuation">.</span><span class="token keyword">default</span><span class="token punctuation">.</span><span class="token function">createElement</span><span class="token punctuation">(</span>component_library_1<span class="token punctuation">.</span>GorgeousGraph<span class="token punctuation">)</span>
+<span class="token punctuation">}</span>
+</code></pre>
+<p>Notice the lack of <code>/* harmony ... */</code>. Instead, you see stuff like <code>exports.GraphContainer</code>, which is how you export things in CommonJS format. Without ES6 syntax, the tree shaking algorithm won’t even be applied to begin with.</p>
+<hr>
+<p><strong>2. Use Terser</strong><br>
+Why?</p>
+<blockquote>
+<p><code>uglify-es</code>  is  <a href="https://github.com/mishoo/UglifyJS2/issues/3156#issuecomment-392943058">no longer maintained</a> and  <code>uglify-js</code>  does not support ES6+.<br>
+— terser’s <a href="https://github.com/terser/terser/blob/master/README.md">readme</a></p>
+</blockquote>
+<p>ES6+ support is necessary for tree shaking. You can add terser to your webpack config like so:</p>
+<pre class=" language-javascript"><code class="prism  language-javascript"><span class="token comment">// webpack.config.js</span>
+<span class="token keyword">const</span> TerserPlugin <span class="token operator">=</span> <span class="token function">require</span><span class="token punctuation">(</span><span class="token string">"terser-webpack-plugin"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+
+<span class="token keyword">const</span> terserPluginOptions <span class="token operator">=</span> <span class="token punctuation">{</span>
+	<span class="token comment">// options go here, see link below</span>
+<span class="token punctuation">}</span>
+
+<span class="token keyword">const</span> config <span class="token operator">=</span> <span class="token punctuation">{</span>
+	entry<span class="token punctuation">:</span> <span class="token string">'src/index.ts'</span>
+	output<span class="token punctuation">:</span> <span class="token punctuation">{</span><span class="token operator">...</span><span class="token punctuation">}</span>
+	module<span class="token punctuation">:</span> <span class="token punctuation">{</span><span class="token operator">...</span><span class="token punctuation">}</span>
+	plugins<span class="token punctuation">:</span> <span class="token punctuation">{</span><span class="token operator">...</span><span class="token punctuation">}</span>
+	optimization<span class="token punctuation">:</span> <span class="token punctuation">{</span>
+		minimizer<span class="token punctuation">:</span> <span class="token punctuation">[</span><span class="token keyword">new</span> <span class="token class-name">TerserPlugin</span><span class="token punctuation">(</span>terserPluginOptions<span class="token punctuation">)</span><span class="token punctuation">]</span>
+	<span class="token punctuation">}</span>
+<span class="token punctuation">}</span>
+
+module<span class="token punctuation">.</span>exports <span class="token operator">=</span> config
+</code></pre>
+<blockquote>
+<p>terser-webpack-plugin’s <a href="%5Bhttps://webpack.js.org/plugins/terser-webpack-plugin/#options%5D(https://webpack.js.org/plugins/terser-webpack-plugin/#options)">options</a></p>
+</blockquote>
+<p>Terser also is the tool that actually does the dead code elimination, webpack just marks code for elimination. You can read all about it here:</p>
+<h2 id="in-summary">In Summary</h2>
+<p>Using this setup, where your library is bundled with Rollup and your consumer is bundled with webpack, tree shaking is possible. Just make sure you do the following:</p>
+<p><strong>Library side</strong></p>
+<ul>
+<li>Set <code>sideEffects: false</code> or list a set of sideEffects in your library <code>package.json</code></li>
+<li>Make sure your final bundle seperates code into seperate files. You can do this with Rollup and <code>preserveModules</code></li>
+<li>Compile your typescript down to <code>"module": "ES6"</code>. The other <code>ES*</code> options should work too</li>
+</ul>
+<p><strong>Consumer side</strong></p>
+<ul>
+<li>Compile your typescript down to <code>"module": "ES6"</code>. The other <code>ES*</code> options should work too</li>
+<li>Use terser as webpack’s minifier. Tree shaking won’t happen without it.</li>
+</ul>
+<h2 id="faq">FAQ</h2>
+<blockquote>
+<p>What if I don’t use typescript?</p>
+</blockquote>
+<p>Just make sure you are writing your javascript with ES6 syntax.</p>
+<blockquote>
+<p>What other options should I have set in my webpack config?</p>
+</blockquote>
+<p>Whatever webpack configuration you were using should be fine, if you make changes outlined above.</p>
+<blockquote>
+<p>My code is still present in the webpack output file even though I followed all of your steps. What am I doing wrong?</p>
+</blockquote>
+<p>Webpack 4+ won’t tree shake your code when it is in development mode. I know, its annoying. The best way to check if your bundle is actually being tree shaken is by using production mode, and then inspecting the bundle with a tool like <a href="https://www.npmjs.com/package/source-map-explorer">source-map-explorer</a>.</p>
+<p>Another option is to try out the Webpack 5 beta, which actually will strip out unused code and print <code>/* unused harmony ... */</code> everywhere its going to actually strip out code.</p>
+<blockquote>
+<p>What about sourcemaps?</p>
+</blockquote>
+<p>You can still use them, I just didn’t want to make my examples too verbose. Incidentally, if you modularize your library bundles, you will have smaller source map files and debugging tools will actually perform better since they don’t have to parse such a big source map! So you are getting developer performance wins there as well.</p>
+<blockquote>
+<p>What if I use Lerna to seperate packages?</p>
+</blockquote>
+<p>Same thing goes. Use rollup to bundle your library code, webpack to bundle your consumer code, and you should be fine. If you have a more complicated dependency structure, you should evaluate which packages should be bundled with rollup as ES6 modules, and which packages should be bundled with webpack to perform the tree shaking.</p>
+<blockquote>
+<p>What if I don’t want to use webpack?</p>
+</blockquote>
+<p>Rollup also does tree shaking, but I haven’t experimented with an all Rollup setup yet. Webpack is superior when creating a final consumable bundle so it makes sense to have that as your last bundler.</p>
+<blockquote>
+<p>What if I’m only making the library and I don’t use webpack?</p>
+</blockquote>
+<p>Ultimately, your consumers won’t need all the code you write into your library, so its essential that you make your library tree-shakable. Since most consumers use webpack as their bundler, the information in this article should set you up for success with most consumers.</p>
+<blockquote>
+<p>What if I only have access to the consumer configuration?</p>
+</blockquote>
+<p>The most you can do is make sure you are set up to tree shake the libraries that are tree shake-able. You could get fancy and make an intermediary step to transpile the libraries you consume to fit the structure outlined above.</p>
+
+    </div>
+  </div>
+</body>
+
+</html>
